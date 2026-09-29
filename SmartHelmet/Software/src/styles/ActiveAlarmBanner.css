@@ -1,0 +1,309 @@
+/* SmartHelmet/Software/src/styles/ActiveAlarmBanner.css */
+
+.active-alarm-banner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+  margin-bottom: 24px;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #07111F 0%, #081522 50%, #0B1726 100%);
+  border: 1px solid rgba(255, 51, 71, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(255, 51, 71, 0.15) inset;
+  font-family: 'Plus Jakarta Sans', Inter, sans-serif;
+  color: #fff;
+  transition: all 300ms ease;
+}
+
+.aab-bg-elements {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.aab-grid-pattern {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+}
+
+.aab-glow-overlay {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: #FF3347;
+  box-shadow: 0 0 15px 2px #FF3347;
+  animation: aab-edge-pulse 2s ease-in-out infinite;
+}
+
+/* ── Left Section ────────────────────────── */
+.aab-left-section {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+
+.aab-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  background: rgba(255, 51, 71, 0.15);
+  border: 1px solid rgba(255, 51, 71, 0.4);
+  border-radius: 12px;
+  color: #fff;
+  box-shadow: 0 0 20px rgba(255, 51, 71, 0.3) inset, 0 0 15px rgba(255, 51, 71, 0.2);
+  animation: aab-icon-breath 2s ease-in-out infinite;
+  transform: skewX(-5deg); /* Slight industrial angled look */
+}
+
+.aab-icon-container > svg {
+  transform: skewX(5deg); /* Unskew icon */
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+}
+
+/* ── Middle Section ────────────────────────── */
+.aab-middle-section {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.aab-header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.aab-label-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aab-severity {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #FF4757;
+}
+
+.aab-severity-line {
+  height: 2px;
+  width: 24px;
+  background: #FF3347;
+  box-shadow: 0 0 5px #FF3347;
+  opacity: 0.8;
+}
+
+.aab-worker-info {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #A0AEC0;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.aab-message {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #FFFFFF;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+/* ── Telemetry Row ────────────────────────── */
+.aab-telemetry-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.aab-metric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #CBD5E1;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.aab-metric-icon {
+  font-size: 0.9rem;
+}
+
+.aab-lucide-icon {
+  color: #94A3B8;
+}
+
+.aab-separator {
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Right Section ────────────────────────── */
+.aab-right-section {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.aab-acknowledge-btn {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  padding: 10px 20px;
+  color: #FFF;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.aab-acknowledge-btn:hover {
+  background: rgba(255, 51, 71, 0.15);
+  border-color: rgba(255, 51, 71, 0.6);
+  box-shadow: 0 0 15px rgba(255, 51, 71, 0.3);
+  transform: translateY(-1px);
+}
+
+.aab-acknowledge-btn:active {
+  transform: translateY(1px);
+}
+
+.aab-ack-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #94A3B8;
+  padding: 8px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ── Acknowledged State ────────────────────────── */
+.active-alarm-banner.aab-acknowledged {
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.active-alarm-banner.aab-acknowledged .aab-glow-overlay {
+  display: none;
+}
+
+.active-alarm-banner.aab-acknowledged .aab-icon-container {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: none;
+  animation: none;
+  color: #94A3B8;
+}
+.active-alarm-banner.aab-acknowledged .aab-icon-container > svg {
+  filter: none;
+}
+
+.active-alarm-banner.aab-acknowledged .aab-severity {
+  color: #94A3B8;
+}
+.active-alarm-banner.aab-acknowledged .aab-severity-line {
+  background: #94A3B8;
+  box-shadow: none;
+}
+
+/* ── Specific Warning (Amber) Overrides ────────────────────────── */
+.active-alarm-banner[data-emergency-level="elevated"]:not(.aab-sos):not(.aab-acknowledged) {
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.15) inset;
+}
+.active-alarm-banner[data-emergency-level="elevated"]:not(.aab-sos):not(.aab-acknowledged) .aab-glow-overlay {
+  background: #F59E0B;
+  box-shadow: 0 0 15px 2px #F59E0B;
+}
+.active-alarm-banner[data-emergency-level="elevated"]:not(.aab-sos):not(.aab-acknowledged) .aab-icon-container {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.3) inset, 0 0 15px rgba(245, 158, 11, 0.2);
+}
+.active-alarm-banner[data-emergency-level="elevated"]:not(.aab-sos):not(.aab-acknowledged) .aab-severity {
+  color: #F59E0B;
+}
+.active-alarm-banner[data-emergency-level="elevated"]:not(.aab-sos):not(.aab-acknowledged) .aab-severity-line {
+  background: #F59E0B;
+  box-shadow: 0 0 5px #F59E0B;
+}
+
+/* ── Animations ────────────────────────── */
+@keyframes aab-icon-breath {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(255, 51, 71, 0.3) inset, 0 0 10px rgba(255, 51, 71, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(255, 51, 71, 0.5) inset, 0 0 25px rgba(255, 51, 71, 0.4);
+  }
+}
+
+@keyframes aab-edge-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ── Responsive ────────────────────────── */
+@media (max-width: 768px) {
+  .active-alarm-banner {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 16px;
+  }
+  
+  .aab-left-section {
+    align-self: center;
+  }
+  
+  .aab-header-row {
+    justify-content: center;
+  }
+
+  .aab-telemetry-row {
+    justify-content: center;
+  }
+  
+  .aab-right-section {
+    justify-content: center;
+    margin-top: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aab-icon-container,
+  .aab-glow-overlay {
+    animation: none;
+  }
+}

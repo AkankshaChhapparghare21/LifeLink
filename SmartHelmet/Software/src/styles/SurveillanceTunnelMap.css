@@ -1,0 +1,705 @@
+/* SmartHelmet/Software/src/styles/SurveillanceTunnelMap.css */
+
+.surveillance-map-card {
+  --stm-cyan: #39d8ff;
+  --stm-blue: #1677bc;
+  --stm-ink: #020a18;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  overflow: visible;
+  color: #dff6ff;
+  background: #020a18;
+  border: 1px solid rgba(73, 192, 255, .23);
+  border-radius: 18px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(132, 227, 255, .12), inset 0 0 64px rgba(0, 85, 153, .12);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Force 1672:941 aspect ratio so the image always fills fully */
+  aspect-ratio: 1672 / 941;
+}
+
+.stm-map-layers {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Background image layer ─────────────────────────── */
+.stm-bg-image-wrapper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.stm-bg-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Status badge overlay (top-right) ───────────────── */
+.stm-status-overlay {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.stm-status-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid rgba(72, 210, 255, .24); border-radius: 4px; background: rgba(3, 15, 33, .55); box-shadow: inset 0 1px 0 rgba(137, 233, 255, .08); color: #7be4ff; font-size: .64rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; backdrop-filter: blur(8px); }
+.stm-status-badge.warning { border-color: rgba(255, 157, 64, .55); color: #ffb25b; }
+.stm-status-badge.emergency { border-color: rgba(255, 76, 70, .65); color: #ff716b; box-shadow: 0 0 22px rgba(248, 47, 57, .16); }
+.stm-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #2ee09b; box-shadow: 0 0 10px #2ee09b; }
+.stm-status-badge.warning .stm-status-dot { background: #ffa13b; box-shadow: 0 0 11px #ffa13b; animation: stm-alert-blink 1.35s ease-in-out infinite; }
+.stm-status-badge.emergency .stm-status-dot { background: #ff4b4b; box-shadow: 0 0 13px #ff4b4b; animation: stm-alert-blink .7s ease-in-out infinite; }
+
+/* ── SVG overlay canvas ─────────────────────────────── */
+.surveillance-map-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.surveillance-map-canvas svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* ── Hazard zone pulse ──────────────────────────────── */
+.stm-hazard-zone { opacity: .17; transition: opacity .35s ease; }
+.stm-hazard-zone.warning { opacity: .84; }
+.stm-hazard-zone.emergency { opacity: 1; }
+.stm-hazard-contour { fill: none; stroke: #ff8752; stroke-width: 2.2; stroke-dasharray: 11 8; filter: url(#stm-tight-glow); }
+.stm-hazard-zone.emergency .stm-hazard-contour { stroke: #ff4249; stroke-width: 2.7; animation: stm-contour-flicker 2.3s ease-in-out infinite; }
+.stm-hazard-copy path { fill: none; stroke: #ff8162; stroke-width: 3; stroke-linejoin: round; }
+.stm-hazard-copy .stm-hazard-person { stroke-width: 2.1; stroke-linecap: round; }
+.stm-hazard-copy text { fill: #ff6e5d; font-size: 18px; font-weight: 800; letter-spacing: .1em; text-anchor: middle; }
+.stm-hazard-zone.warning .stm-hazard-copy path { stroke: #ffb251; }
+.stm-hazard-zone.warning .stm-hazard-copy text { fill: #ffb251; }
+
+/* ── Rescue route ───────────────────────────────────── */
+.stm-rescue-route { opacity: 0; transition: opacity .6s ease-in; }
+.stm-rescue-route.warning { opacity: 1; }
+.stm-rescue-route.emergency { opacity: 1; }
+.stm-rescue-aura { fill: none; stroke: #39ff71; stroke-width: 35; opacity: .45; filter: url(#stm-cyan-haze); }
+.stm-rescue-body { fill: none; stroke: #1bc95d; stroke-width: 17; filter: url(#stm-tight-glow); }
+.stm-rescue-core { fill: none; stroke: #bdffd3; stroke-width: 4; opacity: .95; }
+.stm-rescue-flow { fill: none; stroke: #fff; stroke-width: 2.4; stroke-dasharray: 6 25; opacity: .92; animation: stm-route-flow 1.8s linear infinite; }
+
+/* ── Idle path glow (subtle ambient trail from Entrance to worker) ── */
+.stm-idle-glow {
+  opacity: 1;
+  transition: opacity .6s ease-out;
+}
+.stm-idle-glow.warning,
+.stm-idle-glow.emergency {
+  opacity: 0;
+}
+.stm-idle-aura {
+  fill: none;
+  stroke: #29c9ff;
+  stroke-width: 18;
+  opacity: .15;
+  filter: url(#stm-idle-blur);
+}
+.stm-idle-core {
+  fill: none;
+  stroke: #39d8ff;
+  stroke-width: 2.5;
+  opacity: .2;
+  filter: url(#stm-tight-glow);
+}
+
+/* ── Worker marker ──────────────────────────────────── */
+.stm-worker { transform-box: fill-box; transform-origin: center; }
+.stm-worker-pulse { fill: none; stroke: #29c9ff; stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.stm-worker-pulse-one { animation: stm-worker-pulse 3.1s cubic-bezier(.15, .72, .22, 1) infinite; }
+.stm-worker-pulse-two { animation: stm-worker-pulse 3.1s 1.55s cubic-bezier(.15, .72, .22, 1) infinite; }
+.stm-worker-halo { fill: none; stroke: rgba(42, 194, 255, .38); stroke-width: 1.2; filter: url(#stm-tight-glow); }
+.stm-worker-ring { fill: rgba(5, 55, 151, .34); stroke: #37d8ff; stroke-width: 2.5; filter: url(#stm-tight-glow); }
+.stm-worker-inner { fill: rgba(5, 37, 103, .82); stroke: rgba(127, 237, 255, .75); stroke-width: 1; }
+.stm-worker-icon { fill: #c4f7ff; stroke: #c4f7ff; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; filter: url(#stm-tight-glow); }
+.stm-worker-label { fill: #29d4ff; font-size: 19px; font-weight: 800; letter-spacing: .06em; text-anchor: middle; filter: url(#stm-tight-glow); }
+.stm-worker-name { fill: rgba(209, 244, 255, .72); font-size: 11px; letter-spacing: .1em; text-anchor: middle; text-transform: uppercase; }
+
+/* ── Footer: legend + summary ───────────────────────── */
+.surveillance-map-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 30px 20px 30px;
+  pointer-events: none;
+  background: linear-gradient(transparent, rgba(2, 10, 24, .65) 60%);
+}
+.surveillance-map-legend { display: flex; flex-wrap: wrap; gap: 9px 20px; max-width: 630px; }
+.stm-legend-item { display: inline-flex; align-items: center; gap: 7px; color: rgba(209, 237, 250, .64); font-size: .59rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.stm-legend-swatch { display: inline-block; flex: 0 0 auto; }
+.stm-legend-swatch.tunnel { width: 20px; height: 4px; border-radius: 99px; background: #55dcff; box-shadow: 0 0 8px #1bafe5; }
+.stm-legend-swatch.worker { width: 10px; height: 10px; border: 2px solid #c5f7ff; border-radius: 50%; background: #128ce8; box-shadow: 0 0 9px #25cdff; }
+.stm-legend-swatch.rescue { width: 20px; height: 4px; border-radius: 99px; background: #20e967; box-shadow: 0 0 8px #20e967; }
+.stm-legend-swatch.hazard { width: 18px; height: 10px; border: 1px dashed #ff6b62; border-radius: 9px; background: rgba(248, 59, 60, .16); }
+.surveillance-map-summary { display: flex; gap: 26px; padding: 9px 12px; border: 1px solid rgba(94, 191, 243, .18); background: rgba(1, 10, 25, .47); backdrop-filter: blur(8px); }
+.stm-summary-block { display: grid; gap: 3px; min-width: 92px; text-align: right; }
+.stm-summary-block span { color: rgba(183, 219, 239, .5); font-size: .55rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.stm-summary-block strong { color: #bfeeff; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .82rem; font-weight: 700; text-shadow: 0 0 12px rgba(59, 209, 255, .32); }
+
+/* ── Keyframe animations ────────────────────────────── */
+@keyframes stm-worker-pulse { 0% { transform: scale(.52); opacity: .88; } 78%, 100% { transform: scale(1.95); opacity: 0; } }
+@keyframes stm-route-flow { to { stroke-dashoffset: -31; } }
+@keyframes stm-alert-blink { 50% { opacity: .35; } }
+@keyframes stm-contour-flicker { 0%, 100% { opacity: 1; } 50% { opacity: .68; } }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .surveillance-map-card { 
+    aspect-ratio: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .stm-map-layers {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1672 / 941;
+  }
+  .surveillance-map-footer { 
+    position: relative;
+    padding: 16px 20px 20px;
+    background: transparent;
+  }
+  .surveillance-map-legend { 
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+  }
+  .stm-legend-item { font-size: .4rem; }
+  .stm-summary-block span { font-size: .4rem; }
+  .stm-summary-block strong { font-size: .5rem; }
+}
+
+@media (max-width: 760px) {
+  .surveillance-map-card { border-radius: 14px; }
+  .stm-status-overlay { top: 10px; right: 10px; }
+  .stm-status-badge { padding: 4px 6px; font-size: .42rem; }
+  .surveillance-map-footer { align-items: flex-start; flex-direction: column; gap: 8px; padding: 12px 16px; }
+  .surveillance-map-legend { max-width: 100%; gap: 6px 12px; }
+  .surveillance-map-summary { gap: 18px; padding: 6px 9px; }
+  .stm-summary-block { min-width: 72px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EMERGENCY MODE — Synchronized rescue shimmer + worker pulse
+   Uses --emergency-pulse-duration from dashboard-root
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Rescue path traveling shimmer (critical only) ─────── */
+.stm-rescue-shimmer {
+  fill: none;
+  stroke: #afffb8;
+  stroke-width: 6;
+  stroke-dasharray: 20 180;
+  stroke-linecap: round;
+  opacity: 0.85;
+  filter: url(#stm-tight-glow);
+  animation: stm-rescue-shimmer-travel 2.8s linear infinite;
+}
+
+@keyframes stm-rescue-shimmer-travel {
+  0%   { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -200; }
+}
+
+/* ── Warning: worker marker styling ───────────── */
+.stm-worker.warning .stm-worker-pulse-one,
+.stm-sim-worker.warning .stm-sim-worker-pulse-one,
+.stm-sim-worker.warning .stm-sim-pulse-one {
+  animation: stm-worker-pulse 2.2s cubic-bezier(.15, .72, .22, 1) infinite;
+  stroke: #fbbf24;
+  stroke-width: 2.5;
+}
+
+.stm-worker.warning .stm-worker-pulse-two,
+.stm-sim-worker.warning .stm-sim-worker-pulse-two,
+.stm-sim-worker.warning .stm-sim-pulse-two {
+  animation: stm-worker-pulse 2.2s 1.1s cubic-bezier(.15, .72, .22, 1) infinite;
+  stroke: #fbbf24;
+  stroke-width: 2.5;
+}
+
+.stm-worker.warning .stm-worker-halo,
+.stm-sim-worker.warning .stm-sim-worker-halo {
+  stroke: rgba(245, 158, 11, 0.45);
+  stroke-width: 1.5;
+}
+
+.stm-worker.warning .stm-worker-ring,
+.stm-sim-worker.warning .stm-sim-worker-ring {
+  stroke: #f59e0b;
+}
+
+/* ── Critical: intensify worker marker pulse ───────────── */
+.stm-worker.emergency .stm-worker-pulse-one,
+.stm-sim-worker.emergency .stm-sim-worker-pulse-one,
+.stm-sim-worker.emergency .stm-sim-pulse-one {
+  animation: stm-worker-pulse 1.8s cubic-bezier(.15, .72, .22, 1) infinite;
+  stroke: #ff6b6b;
+  stroke-width: 3;
+}
+
+.stm-worker.emergency .stm-worker-pulse-two,
+.stm-sim-worker.emergency .stm-sim-worker-pulse-two,
+.stm-sim-worker.emergency .stm-sim-pulse-two {
+  animation: stm-worker-pulse 1.8s 0.9s cubic-bezier(.15, .72, .22, 1) infinite;
+  stroke: #ff6b6b;
+  stroke-width: 3;
+}
+
+.stm-worker.emergency .stm-worker-halo,
+.stm-sim-worker.emergency .stm-sim-worker-halo {
+  stroke: rgba(255, 100, 100, 0.45);
+  stroke-width: 1.8;
+}
+
+.stm-worker.emergency .stm-worker-ring,
+.stm-sim-worker.emergency .stm-sim-worker-ring {
+  stroke: #ff8888;
+}
+
+/* ── Critical: rescue route glow intensification ───────── */
+.surveillance-map-card[data-emergency-level="critical"] .stm-rescue-aura {
+  stroke: #20ff55;
+  opacity: 0.6;
+  animation: stm-rescue-aura-pulse var(--emergency-pulse-duration, 1.6s) ease-in-out infinite;
+}
+
+.surveillance-map-card[data-emergency-level="critical"] .stm-rescue-body {
+  stroke: #1ddb54;
+}
+
+.surveillance-map-card[data-emergency-level="critical"] .stm-rescue-core {
+  stroke: #c0ffe0;
+  stroke-width: 5;
+}
+
+@keyframes stm-rescue-aura-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.7; }
+}
+
+/* ── Elevated (warning): rescue path stays static, subtle glow ── */
+.surveillance-map-card[data-emergency-level="elevated"] .stm-rescue-aura {
+  animation: none;
+  opacity: 0.45;
+}
+
+/* ── Accessibility ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .stm-worker-pulse, .stm-rescue-flow, .stm-status-badge .stm-status-dot,
+  .stm-hazard-zone.emergency .stm-hazard-contour,
+  .stm-rescue-shimmer {
+    animation: none;
+  }
+  .surveillance-map-card[data-emergency-level="critical"] .stm-worker-pulse-one,
+  .surveillance-map-card[data-emergency-level="critical"] .stm-worker-pulse-two {
+    animation: none;
+  }
+  .surveillance-map-card[data-emergency-level="critical"] .stm-rescue-aura {
+    animation: none;
+    opacity: 0.55;
+  }
+  .stm-rescue-shimmer {
+    opacity: 0.5;
+    stroke-dasharray: none;
+  }
+  .stm-idle-glow,
+  .stm-rescue-route {
+    transition: none;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SIMULATED / FAKE WORKER MARKERS (Phase 2)
+   ──────────────────────────────────────────────────────────────
+   Matches Worker 1 color palette (cyan / blue / glow).
+   ══════════════════════════════════════════════════════════════ */
+
+.stm-sim-worker {
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: auto;
+}
+
+/* ── Pulse rings: cyan/blue matching Worker 1 ── */
+.stm-sim-worker-pulse {
+  fill: none;
+  stroke: #29c9ff;
+  stroke-width: 1.5;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.stm-sim-pulse-one {
+  animation: stm-sim-pulse 3.1s cubic-bezier(.15, .72, .22, 1) infinite;
+}
+.stm-sim-pulse-two {
+  animation: stm-sim-pulse 3.1s 1.55s cubic-bezier(.15, .72, .22, 1) infinite;
+}
+
+/* ── Halo ring ── */
+.stm-sim-worker-halo {
+  fill: none;
+  stroke: rgba(42, 194, 255, .38);
+  stroke-width: 1.2;
+  filter: url(#stm-tight-glow);
+}
+
+/* ── Ring ── */
+.stm-sim-worker-ring {
+  fill: rgba(5, 55, 151, .34);
+  stroke: #37d8ff;
+  stroke-width: 2.5;
+  filter: url(#stm-tight-glow);
+}
+
+/* ── Inner disc ── */
+.stm-sim-worker-inner {
+  fill: rgba(5, 37, 103, .82);
+  stroke: rgba(127, 237, 255, .75);
+  stroke-width: 1;
+}
+
+/* ── Person icon ── */
+.stm-sim-worker-icon {
+  fill: #c4f7ff;
+  stroke: #c4f7ff;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: url(#stm-tight-glow);
+}
+
+/* ── "SIM" badge above icon ── */
+.stm-sim-badge-bg {
+  fill: rgba(5, 55, 151, .65);
+  stroke: rgba(55, 216, 255, .70);
+  stroke-width: 1;
+}
+.stm-sim-badge-text {
+  fill: #29d4ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* ── Name and zone labels ── */
+.stm-sim-worker-name {
+  fill: #2AD4FF;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+.stm-sim-worker-zone {
+  fill: #29d4ff;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .10em;
+  text-anchor: middle;
+  text-transform: uppercase;
+  filter: url(#stm-tight-glow);
+}
+
+/* ── Legend swatch for simulated workers ── */
+.stm-legend-swatch.simulated {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #c5f7ff;
+  border-radius: 50%;
+  background: #128ce8;
+  box-shadow: 0 0 9px #25cdff;
+}
+
+/* ── Simulated worker pulse keyframe ── */
+@keyframes stm-sim-pulse {
+  0%        { transform: scale(.52); opacity: .88; }
+  78%, 100% { transform: scale(1.95); opacity: 0; }
+}
+
+/* ── Accessibility: disable simulated worker animations too ── */
+@media (prefers-reduced-motion: reduce) {
+  .stm-sim-worker-pulse {
+    animation: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WORKER POPUP OVERLAY — clickable worker icons
+   Compact vitals card anchored near the clicked map icon.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Backdrop — transparent click-catcher to dismiss popup */
+.stm-popup-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  cursor: default;
+}
+
+/* Popup card */
+.stm-popup {
+  position: absolute;
+  z-index: 51;
+  width: 280px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(55, 216, 255, 0.15);
+  background: linear-gradient(135deg, rgba(13, 17, 23, 0.35) 0%, rgba(6, 11, 40, 0.25) 100%);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3), 0 0 24px rgba(55, 216, 255, 0.08);
+  font-family: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  animation: stm-popup-in 180ms ease-out;
+}
+
+@keyframes stm-popup-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+/* ── Popup header ── */
+.stm-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stm-popup-avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #c4f7ff;
+}
+
+.stm-popup-avatar.real {
+  background: linear-gradient(135deg, rgba(5, 55, 151, 0.55), rgba(7, 92, 200, 0.35));
+  border: 2px solid rgba(55, 216, 255, 0.50);
+  box-shadow: 0 0 10px rgba(55, 216, 255, 0.15);
+}
+
+.stm-popup-avatar.sim {
+  background: linear-gradient(135deg, rgba(5, 55, 151, 0.40), rgba(7, 92, 200, 0.22));
+  border: 2px solid rgba(55, 216, 255, 0.35);
+}
+
+.stm-popup-info { flex: 1; min-width: 0; }
+
+.stm-popup-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #e6edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stm-popup-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.stm-popup-id {
+  font-size: 0.56rem;
+  font-weight: 600;
+  color: #8b949e;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stm-popup-zone {
+  font-size: 0.56rem;
+  font-weight: 700;
+  color: rgba(55, 216, 255, 0.70);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stm-popup-dot-sep {
+  font-size: 0.50rem;
+  color: rgba(139, 148, 158, 0.4);
+}
+
+/* ── Badges row ── */
+.stm-popup-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stm-popup-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 0.48rem;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+.stm-popup-badge.live {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+.stm-popup-badge.sim-badge {
+  background: rgba(55, 216, 255, 0.10);
+  border: 1px solid rgba(55, 216, 255, 0.30);
+  color: #7be4ff;
+}
+
+.stm-popup-badge.status-normal {
+  background: rgba(16, 185, 129, 0.10);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+.stm-popup-badge.status-warning {
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.stm-popup-badge.status-emergency {
+  background: rgba(239, 68, 68, 0.10);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+.stm-popup-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── Compact vitals grid ── */
+.stm-popup-vitals {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.stm-popup-vital {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.55);
+  border: 1px solid rgba(99, 110, 123, 0.12);
+}
+
+.stm-popup-vital-label {
+  font-size: 0.44rem;
+  font-weight: 700;
+  color: #8b949e;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+
+.stm-popup-vital-value {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #bfeeff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+/* ── View Details button ── */
+.stm-popup-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 7px 0;
+  border: 1px solid rgba(55, 216, 255, 0.30);
+  border-radius: 10px;
+  background: rgba(55, 216, 255, 0.08);
+  color: #2ad4ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, transform 150ms;
+  font-family: inherit;
+}
+
+.stm-popup-action:hover,
+.stm-popup-action:focus-visible {
+  background: rgba(55, 216, 255, 0.16);
+  border-color: rgba(55, 216, 255, 0.55);
+  transform: translateY(-1px);
+}
+
+/* ── Close button ── */
+.stm-popup-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(99, 110, 123, 0.15);
+  color: #8b949e;
+  font-size: 0.65rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.stm-popup-close:hover {
+  background: rgba(239, 68, 68, 0.20);
+  color: #f87171;
+}
+
+/* Make SVG worker groups clickable — override canvas pointer-events:none */
+.stm-worker,
+.stm-sim-worker {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stm-popup {
+    animation: none;
+  }
+}

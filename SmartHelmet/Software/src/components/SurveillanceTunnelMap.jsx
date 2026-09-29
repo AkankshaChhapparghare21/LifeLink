@@ -1,0 +1,737 @@
+// SmartHelmet/Software/src/components/SurveillanceTunnelMap.jsx
+
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { THRESHOLDS, RSSI_STRONGEST, RSSI_WEAKEST } from '../utils/constants';
+import tunnelMapBg from '../assets/tunnel-map-background.png';
+import useFakeWorkers from '../hooks/useFakeWorkers';
+import '../styles/SurveillanceTunnelMap.css';
+
+/* ═══════════════════════════════════════════════════════════════
+   IMAGE & COORDINATE CONSTANTS
+   ═══════════════════════════════════════════════════════════════ */
+
+// Native image dimensions (used for aspect-ratio and SVG viewBox)
+const IMG_W = 1672;
+const IMG_H = 941;
+const VIEWBOX = `0 0 ${IMG_W} ${IMG_H}`;
+
+// Helper: convert normalized percentage to absolute pixel coords
+const pct = (xPct, yPct) => ({ x: (xPct / 100) * IMG_W, y: (yPct / 100) * IMG_H });
+
+// ── 4 Verified named nodes (DO NOT CHANGE) ──────────────────
+const NODES = {
+  entrance:      pct(8.64,  51.64),   // ≈ (144.5, 485.9)
+  mainJunction:  pct(24.72, 51.65),   // ≈ (413.3, 486.0)
+  eastJunction:  pct(58.56, 55.66),   // ≈ (979.1, 523.8)
+  zoneE:         pct(86.97, 67.04),   // ≈ (1454.2, 630.8)
+};
+
+// ── Verified 24-point traced path (Ground Truth) ────────────────
+const WAYPOINTS = [
+  pct(8.63, 52.07),   // 1. Entrance (approx NODES.entrance)
+  pct(10.98, 57.86),
+  pct(14.24, 53.51),
+  pct(16.89, 50.62),
+  pct(19.64, 51.52),
+  pct(22.09, 53.70),
+  pct(24.84, 52.43),  // 7. near Main Junction (approx NODES.mainJunction)
+  pct(28.31, 53.33),
+  pct(30.35, 50.98),
+  pct(33.81, 50.43),
+  pct(35.85, 50.07),
+  pct(40.85, 53.15),
+  pct(45.23, 54.96),
+  pct(48.80, 54.42),
+  pct(51.45, 53.51),
+  pct(54.81, 56.23),
+  pct(58.58, 56.41),  // 17. near East Junction (approx NODES.eastJunction)
+  pct(62.05, 58.59),
+  pct(65.62, 58.77),
+  pct(67.66, 59.86),
+  pct(76.42, 64.93),
+  pct(80.19, 66.56),
+  pct(83.25, 66.92),
+  pct(86.72, 67.83)   // 24. Zone E (approx NODES.zoneE)
+];
+
+/**
+ * Convert a sequence of waypoints to a smooth SVG path using Catmull-Rom → Cubic Bézier.
+ * Each waypoint is passed through exactly (interpolating spline), producing a smooth curve
+ * that hugs the road centerline far more closely than simple 4-point cubic arcs.
+ */
+function catmullRomToPath(points, tension = 0.35) {
+  if (points.length < 2) return '';
+
+  const d = [`M ${points[0].x} ${points[0].y}`];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(i - 1, 0)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(i + 2, points.length - 1)];
+
+    // Catmull-Rom tangent → Bézier control points
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+
+    d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`);
+  }
+
+  return d.join(' ');
+}
+
+const RESCUE_PATH = catmullRomToPath(WAYPOINTS);
+
+/* ═══════════════════════════════════════════════════════════════
+   RSSI → CONTINUOUS PATH POSITION HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+
+const RSSI_HISTORY_SIZE = 4;
+const LERP_SPEED = 0.04;             // per-frame easing toward target (0–1)
+const PREDICTION_INTERVAL_MS = 2000; // how often to nudge the predicted position
+const PREDICTION_STEP_DBM = 3;       // dBm step per prediction tick
+
+/**
+ * Convert an RSSI value to a 0–1 percent along the path.
+ * 0 = Entrance (strongest signal, closest to 0 dBm)
+ * 1 = farthest point (weakest signal, most negative dBm)
+ */
+function getPercentFromRSSI(rssi) {
+  const clamped = Math.max(RSSI_WEAKEST, Math.min(RSSI_STRONGEST, rssi));
+  const ratio = (clamped - RSSI_WEAKEST) / (RSSI_STRONGEST - RSSI_WEAKEST);
+  return 1 - ratio;
+}
+
+function getHazardLabel(reading) {
+  if (reading?.gas_level >= THRESHOLDS.gas_level.warning) return 'GAS HAZARD';
+  if (reading?.temperature >= THRESHOLDS.temperature.warning) return 'HEAT HAZARD';
+  if (reading?.force >= THRESHOLDS.force.warning) return 'IMPACT ALERT';
+  if (reading?.heart_rate > 0 && (
+    reading.heart_rate <= THRESHOLDS.heart_rate.warningLow ||
+    reading.heart_rate >= THRESHOLDS.heart_rate.warningHigh
+  )) return 'VITAL ALERT';
+  return 'HAZARD ZONE';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+   ═══════════════════════════════════════════════════════════════ */
+
+export default function SurveillanceTunnelMap({
+  worker,
+  reading,
+  zone,
+  status = 'normal',
+  isEmergencyMode,
+  emergencyLevel,
+  onViewDetails,
+  evaluatedWorkers = [],
+  activeEmergency = null,
+  acknowledgedWorkerIds = new Set(),
+}) {
+  const isDanger = status === 'warning' || status === 'emergency';
+  const isEmergency = status === 'emergency';
+  const activeZone = zone || 'Unknown';
+  const rssi = reading?.rssi;
+  const workerName = worker?.name || worker?.worker_id || 'Live worker';
+  const hazardLabel = getHazardLabel(reading);
+
+  // Use evaluatedWorkers provided by Dashboard
+  const fakeWorkers = useMemo(() => evaluatedWorkers.filter(w => w.isSimulated), [evaluatedWorkers]);
+  const realWorker = useMemo(() => evaluatedWorkers.find(w => !w.isSimulated) || { emergency: null }, [evaluatedWorkers]);
+  
+  // The global hazard state for environmental hazards
+  const hazardState = activeEmergency?.isEnvironmental ? activeEmergency.severity : 'normal';
+
+  const { ZONE_COORDINATES } = require('../utils/constants');
+  
+  const zoneCoordinates = useMemo(() => {
+    const coords = { ...ZONE_COORDINATES };
+    fakeWorkers.forEach(w => {
+      if (!coords[w.zone] && w.position) {
+        coords[w.zone] = w.position;
+      }
+    });
+    return coords;
+  }, [fakeWorkers, ZONE_COORDINATES]);
+
+  const hazardZoneCoords = activeEmergency?.isEnvironmental ? zoneCoordinates[activeEmergency.zoneId] : null;
+
+  const renderEmergencyPopup = (w) => {
+    if (!w.emergency || (w.status !== 'emergency' && w.status !== 'warning')) return null;
+    // Hide if acknowledged
+    if (acknowledgedWorkerIds.has(w.id)) return null;
+    
+    // Only display gas info if we have the reading (we only have it for the real worker anyway, or we can just omit it)
+    const readingValue = !w.isSimulated && w.emergency.type === 'GAS' ? `${reading?.gas_level} ppm` : null;
+
+    const isWarning = w.status === 'warning';
+    const borderColor = isWarning ? '#f59e0b' : '#ef4444';
+    const shadowColor = isWarning ? 'rgba(245, 158, 11, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+    const textColor = isWarning ? '#fbbf24' : '#ef4444';
+    const icon = isWarning ? '🟡' : '🚨';
+
+    return (
+      <foreignObject x="30" y="-120" width="220" height="120" style={{ pointerEvents: 'none' }}>
+        <div style={{
+          background: 'rgba(15, 20, 25, 0.95)',
+          border: `1px solid ${borderColor}`,
+          borderRadius: '8px',
+          padding: '12px',
+          color: 'white',
+          fontSize: '13px',
+          boxShadow: `0 4px 16px ${shadowColor}`,
+          fontFamily: 'monospace'
+        }}>
+          <div style={{ color: textColor, fontWeight: 'bold', marginBottom: '6px' }}>{icon} {w.emergency.type.replace(/_/g, ' ')} {w.emergency.type === 'WEAK_SIGNAL' ? '' : 'DETECTED'}</div>
+          <div>Worker: {w.id}</div>
+          <div>Location: {w.zone}</div>
+          {readingValue && <div style={{ marginTop: '4px', color: '#fca5a5' }}>Value: {readingValue}</div>}
+        </div>
+      </foreignObject>
+    );
+  };
+
+  // ── Popup state ─────────────────────────────────────────────────
+  const [popupWorkerId, setPopupWorkerId] = useState(null);
+  const [popupPos, setPopupPos] = useState({ left: '50%', top: '50%' });
+  const mapLayersRef = useRef(null);
+  const hoverTimeoutRef = useRef(null);
+
+  // cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
+
+  // ── Refs for smooth positioning ────────────────────────────────
+  const refPathEl = useRef(null);          // invisible reference <path>
+  const workerGroupRef = useRef(null);     // <g> element of worker marker
+  const rescueMaskPathRef = useRef(null);  // <mask> for dynamic rescue path length
+  const idleGlowMaskRef = useRef(null);    // <mask> for idle glow path clipping
+  const rssiHistoryRef = useRef([]);       // rolling window of recent RSSI values
+  const currentPercentRef = useRef(0);     // where the dot IS right now (0–1)
+  const targetPercentRef = useRef(0);      // where the dot SHOULD be heading
+  const trendDeltaRef = useRef(0);         // avg dBm change per reading
+  const lastRealRssiRef = useRef(null);    // last actual RSSI from reading
+  const predictionTimerRef = useRef(null); // interval for trend extrapolation
+  const rafIdRef = useRef(null);           // requestAnimationFrame handle
+
+  // ── On new RSSI reading: update history + target + trend ───────
+  useEffect(() => {
+    if (rssi == null || rssi === undefined) return;
+
+    const history = rssiHistoryRef.current;
+    lastRealRssiRef.current = rssi;
+
+    // Push to rolling history (keep last N)
+    history.push(rssi);
+    if (history.length > RSSI_HISTORY_SIZE) {
+      history.splice(0, history.length - RSSI_HISTORY_SIZE);
+    }
+
+    // Compute average delta across consecutive readings
+    let deltaSum = 0;
+    let deltaCount = 0;
+    for (let i = 1; i < history.length; i++) {
+      deltaSum += history[i] - history[i - 1];
+      deltaCount++;
+    }
+    const avgDelta = deltaCount > 0 ? deltaSum / deltaCount : 0;
+    trendDeltaRef.current = avgDelta;
+
+    // Set target from real data (overrides any prediction)
+    targetPercentRef.current = getPercentFromRSSI(rssi);
+  }, [rssi]);
+
+  // ── Prediction timer: extrapolate between packets ──────────────
+  useEffect(() => {
+    // Clear any existing timer
+    if (predictionTimerRef.current) {
+      clearInterval(predictionTimerRef.current);
+    }
+
+    predictionTimerRef.current = setInterval(() => {
+      const delta = trendDeltaRef.current;
+      const lastReal = lastRealRssiRef.current;
+      if (lastReal == null || Math.abs(delta) < 0.5) return;
+
+      // Extrapolate a small step in the current trend direction
+      const direction = delta < 0 ? -1 : 1; // negative delta = moving away
+      const predictedRssi = lastReal + direction * PREDICTION_STEP_DBM;
+
+      // Clamp and update target
+      const clampedPredicted = Math.max(RSSI_WEAKEST, Math.min(RSSI_STRONGEST, predictedRssi));
+      targetPercentRef.current = getPercentFromRSSI(clampedPredicted);
+    }, PREDICTION_INTERVAL_MS);
+
+    return () => {
+      if (predictionTimerRef.current) {
+        clearInterval(predictionTimerRef.current);
+      }
+    };
+  }, []); // runs once on mount
+
+  // ── Position-update callback using getPointAtLength ────────────
+  const updateWorkerPosition = useCallback(() => {
+    const pathEl = refPathEl.current;
+    const workerEl = workerGroupRef.current;
+    const maskPathEl = rescueMaskPathRef.current;
+    const idleGlowMaskEl = idleGlowMaskRef.current;
+    if (!pathEl || !workerEl) return;
+
+    const totalLen = pathEl.getTotalLength();
+    const target = targetPercentRef.current;
+    const current = currentPercentRef.current;
+
+    // Ease toward target
+    const diff = target - current;
+    if (Math.abs(diff) > 0.0005) {
+      currentPercentRef.current = current + diff * LERP_SPEED;
+    } else {
+      currentPercentRef.current = target;
+    }
+
+    const clampedPercent = Math.max(0, Math.min(1, currentPercentRef.current));
+    const point = pathEl.getPointAtLength(clampedPercent * totalLen);
+    workerEl.setAttribute('transform', `translate(${point.x} ${point.y})`);
+
+    // Dynamically clip the rescue path to end exactly at the worker's current dot
+    if (maskPathEl) {
+      const drawnLen = clampedPercent * totalLen;
+      maskPathEl.setAttribute('stroke-dasharray', `${totalLen} ${totalLen}`);
+      maskPathEl.setAttribute('stroke-dashoffset', `${totalLen - drawnLen}`);
+    }
+
+    // Dynamically clip the idle glow path to end at the worker's current position
+    if (idleGlowMaskEl) {
+      const drawnLen = clampedPercent * totalLen;
+      idleGlowMaskEl.setAttribute('stroke-dasharray', `${totalLen} ${totalLen}`);
+      idleGlowMaskEl.setAttribute('stroke-dashoffset', `${totalLen - drawnLen}`);
+    }
+  }, []);
+
+  // ── rAF animation loop ─────────────────────────────────────────
+  useEffect(() => {
+    function tick() {
+      updateWorkerPosition();
+      rafIdRef.current = requestAnimationFrame(tick);
+    }
+    rafIdRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [updateWorkerPosition]);
+
+  // ── Fallback: initialise position if no RSSI yet ───────────────
+  const [workerFallback] = useState({ x: NODES.zoneE.x, y: NODES.zoneE.y });
+
+  // ── Popup helpers ───────────────────────────────────
+  const REAL_WORKER_ID = 'W001';
+
+  // Convert SVG coords to CSS percentage position relative to the map container
+  const svgToPercent = useCallback((svgX, svgY) => {
+    let leftPct = (svgX / IMG_W) * 100;
+    let topPct = (svgY / IMG_H) * 100;
+    // Clamp so popup stays within visible bounds
+    leftPct = Math.max(18, Math.min(82, leftPct));
+    
+    // Place popup above the icon if in bottom half, below if in top half
+    const isBottomHalf = topPct > 50;
+    if (isBottomHalf) {
+      return { 
+        left: `${leftPct}%`, 
+        bottom: `${100 - topPct + 8}%`,
+        top: 'auto'
+      };
+    } else {
+      return { 
+        left: `${leftPct}%`, 
+        top: `${topPct + 10}%`,
+        bottom: 'auto'
+      };
+    }
+  }, []);
+
+  const handleWorkerHover = useCallback((workerId, svgX, svgY) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setPopupPos(svgToPercent(svgX, svgY));
+    setPopupWorkerId(workerId);
+  }, [svgToPercent]);
+
+  const handleWorkerLeave = useCallback(() => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setPopupWorkerId(null);
+    }, 300);
+  }, []);
+
+  const handleRealWorkerHover = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    // Get real worker's current SVG position from the ref's transform
+    const el = workerGroupRef.current;
+    let cx = workerFallback.x;
+    let cy = workerFallback.y;
+    if (el) {
+      const transformAttr = el.getAttribute('transform');
+      const match = transformAttr?.match(/translate\(([\d.-]+)[,\s]+([\d.-]+)\)/);
+      if (match) {
+        cx = parseFloat(match[1]);
+        cy = parseFloat(match[2]);
+      }
+    }
+    handleWorkerHover(REAL_WORKER_ID, cx, cy);
+  }, [handleWorkerHover, workerFallback]);
+
+  const handlePopupEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  }, []);
+
+  const handlePopupLeave = useCallback(() => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setPopupWorkerId(null);
+    }, 300);
+  }, []);
+
+  const closePopup = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setPopupWorkerId(null);
+  }, []);
+
+  // Resolve the popup worker's data for display
+  const popupWorkerData = useMemo(() => {
+    if (!popupWorkerId) return null;
+    if (popupWorkerId === REAL_WORKER_ID) {
+      return {
+        id: REAL_WORKER_ID,
+        name: workerName,
+        zone: activeZone,
+        status: status,
+        isSimulated: false,
+        vitals: {
+          temperature: reading?.temperature,
+          gas_level: reading?.gas_level,
+          force: reading?.force,
+          heart_rate: reading?.heart_rate,
+          spo2: reading?.spo2,
+          rssi: reading?.rssi,
+        },
+      };
+    }
+    const fw = fakeWorkers.find((w) => w.id === popupWorkerId);
+    if (!fw) return null;
+    return {
+      id: fw.id,
+      name: fw.name,
+      zone: fw.zone,
+      status: fw.status,
+      isSimulated: true,
+      vitals: {
+        temperature: fw.readings.temperature,
+        gas_level: fw.readings.gas_level,
+        force: fw.readings.force,
+        heart_rate: fw.readings.heart_rate,
+        spo2: fw.readings.spo2,
+        rssi: fw.rssi,
+      },
+    };
+  }, [popupWorkerId, workerName, activeZone, status, reading, fakeWorkers]);
+
+  return (
+    <section className={`surveillance-map-card stm-state-${hazardState}`} data-emergency-level={emergencyLevel || 'none'} aria-label="Tunnel surveillance map">
+
+      {/* ── Map Layers (Image + SVG + Overlays) ── */}
+      <div className="stm-map-layers" ref={mapLayersRef}>
+        {/* ── Background image layer ── */}
+        <div className="stm-bg-image-wrapper" aria-hidden="true">
+          <img
+            src={tunnelMapBg}
+            alt=""
+            className="stm-bg-image"
+            draggable={false}
+          />
+        </div>
+
+        {/* ── Status badge (top-right, overlay) ── */}
+        <div className="stm-status-overlay">
+          <div className={`stm-status-badge ${hazardState}`}>
+            <span className="stm-status-dot" />
+            {isEmergency ? 'Emergency' : isDanger ? 'Warning' : 'All clear'}
+          </div>
+        </div>
+
+        {/* ── SVG overlay: only live/dynamic elements ── */}
+        <div className="surveillance-map-canvas">
+          <svg viewBox={VIEWBOX} preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="stm-svg-title stm-svg-description">
+            <title id="stm-svg-title">Underground tunnel surveillance overlay</title>
+            <desc id="stm-svg-description">Live worker position, rescue path, and hazard indicators overlaid on the tunnel map.</desc>
+            <defs>
+              {/* Mask for clipping rescue path to worker's position */}
+              <mask id="rescue-mask" x="-50%" y="-50%" width="200%" height="200%">
+                <path
+                  ref={rescueMaskPathRef}
+                  d={RESCUE_PATH}
+                  stroke="white"
+                  strokeWidth="100"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+              </mask>
+              {/* Mask for clipping idle glow to worker's position */}
+              <mask id="idle-glow-mask" x="-50%" y="-50%" width="200%" height="200%">
+                <path
+                  ref={idleGlowMaskRef}
+                  d={RESCUE_PATH}
+                  stroke="white"
+                  strokeWidth="100"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+              </mask>
+              <filter id="stm-cyan-haze" x="-30%" y="-35%" width="160%" height="170%">
+                <feGaussianBlur stdDeviation="13" />
+              </filter>
+              <filter id="stm-tight-glow" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="blur" />
+                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+              <filter id="stm-idle-blur" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="6" />
+              </filter>
+              <radialGradient id="stm-worker-fill">
+                <stop offset="0" stopColor="#1dcdfd" stopOpacity=".75" />
+                <stop offset=".55" stopColor="#075cc8" stopOpacity=".42" />
+                <stop offset="1" stopColor="#06215b" stopOpacity="0" />
+              </radialGradient>
+              {/* ── Simulated worker visual defs (Phase 2) ── */}
+              <radialGradient id="stm-sim-worker-fill">
+                <stop offset="0" stopColor="#1dcdfd" stopOpacity=".75" />
+                <stop offset=".55" stopColor="#075cc8" stopOpacity=".42" />
+                <stop offset="1" stopColor="#06215b" stopOpacity="0" />
+              </radialGradient>
+              <radialGradient id="stm-hazard-fill">
+                <stop offset="0" stopColor={isEmergency ? '#fa3a37' : '#f39a39'} stopOpacity={isDanger ? '.28' : '.03'} />
+                <stop offset=".64" stopColor={isEmergency ? '#d61f33' : '#e06b20'} stopOpacity={isDanger ? '.13' : '.01'} />
+                <stop offset="1" stopColor="#ff3349" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+
+            {/* ── Hazard zone pulse (positioned dynamically based on emergency zone) ── */}
+            {hazardZoneCoords && (
+              <g className={`stm-hazard-zone ${hazardState}`} aria-label={isDanger ? hazardLabel : 'Dormant hazard zone'}>
+                <circle className="stm-hazard-haze" cx={hazardZoneCoords.x} cy={hazardZoneCoords.y} r="140" fill="url(#stm-hazard-fill)" />
+                <circle className="stm-hazard-contour" cx={hazardZoneCoords.x} cy={hazardZoneCoords.y} r="120" />
+                {isDanger && (
+                  <g className="stm-hazard-copy" transform={`translate(${hazardZoneCoords.x} ${hazardZoneCoords.y})`}>
+                    <path d="M 0 -35 L 31 20 L -31 20 Z" />
+                    <path className="stm-hazard-person" d="M 0 -19 a4 4 0 1 0 0 .1 M 0 -12 v17 M -11 -2 L 0 -8 L 11 -2 M -6 15 L 0 5 L 6 15" />
+                    <text x="0" y="56">{hazardLabel}</text>
+                  </g>
+                )}
+              </g>
+            )}
+
+            {/* ── Idle path glow (always visible, fades out during emergency) ── */}
+            <g className={`stm-idle-glow ${hazardState}`} strokeLinecap="round" mask="url(#idle-glow-mask)" aria-hidden="true">
+              <path d={RESCUE_PATH} className="stm-idle-aura" />
+              <path d={RESCUE_PATH} className="stm-idle-core" />
+            </g>
+
+            {/* ── Rescue route (visible only when danger is active) ── */}
+            <g className={`stm-rescue-route ${hazardState}`} strokeLinecap="round" aria-label="Active rescue path" mask="url(#rescue-mask)">
+              <path d={RESCUE_PATH} className="stm-rescue-aura" />
+              <path d={RESCUE_PATH} className="stm-rescue-body" />
+              <path d={RESCUE_PATH} className="stm-rescue-core" />
+              <path d={RESCUE_PATH} className="stm-rescue-flow" />
+              {emergencyLevel === 'critical' && (
+                <path d={RESCUE_PATH} className="stm-rescue-shimmer" />
+              )}
+            </g>
+
+            {/* ── Invisible reference path for getPointAtLength positioning ── */}
+            <path
+              ref={refPathEl}
+              d={RESCUE_PATH}
+              fill="none"
+              stroke="none"
+              strokeWidth="0"
+              style={{ pointerEvents: 'none' }}
+            />
+
+            {/* ── Live Worker Marker (positioned by rAF loop) ── */}
+            <g
+              ref={workerGroupRef}
+              className={`stm-worker ${realWorker.status === 'emergency' ? 'emergency' : realWorker.status === 'warning' ? 'warning' : ''}`}
+              transform={`translate(${workerFallback.x} ${workerFallback.y})`}
+              aria-label={`Worker position, ${workerName}`}
+              onMouseEnter={handleRealWorkerHover}
+              onMouseLeave={handleWorkerLeave}
+              onFocus={handleRealWorkerHover}
+              onBlur={handleWorkerLeave}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleRealWorkerHover(); }}
+            >
+              <circle className="stm-worker-pulse stm-worker-pulse-one" r="50" />
+              <circle className="stm-worker-pulse stm-worker-pulse-two" r="50" />
+              <circle className="stm-worker-halo" r="66" />
+              <circle className="stm-worker-field" r="57" fill="url(#stm-worker-fill)" />
+              <circle className="stm-worker-ring" r="44" />
+              <circle className="stm-worker-inner" r="32" />
+              <g className="stm-worker-icon">
+                <circle cy="-11" r="7" />
+                <path d="M -12 22 V 6 C -12 -1 -7 -4 0 -4 C 7 -4 12 -1 12 6 V 22 M -12 7 L -20 16 M 12 7 L 20 16 M -7 29 L -7 18 M 7 29 L 7 18" />
+              </g>
+              <text className="stm-worker-label" x="0" y="84">WORKER</text>
+              <text className="stm-worker-name" x="0" y="102">{workerName}</text>
+              {renderEmergencyPopup(realWorker)}
+            </g>
+            {/* ── Simulated/Fake Worker Markers (Phase 2) ─────────────
+                 Static icons at fixed coordinates. Visually distinct from
+                 the real worker (teal/muted vs cyan/blue, dashed ring,
+                 "SIM" label). No click handlers — Phase 3 responsibility.
+                 ────────────────────────────────────────────────────────── */}
+            {fakeWorkers.map((fw) => (
+              <g
+                key={fw.id}
+                className={`stm-sim-worker ${fw.status === 'emergency' ? 'emergency' : fw.status === 'warning' ? 'warning' : ''}`}
+                transform={`translate(${fw.position.x} ${fw.position.y})`}
+                aria-label={`Simulated worker, ${fw.name}, ${fw.zone}`}
+                onMouseEnter={() => handleWorkerHover(fw.id, fw.position.x, fw.position.y)}
+                onMouseLeave={handleWorkerLeave}
+                onFocus={() => handleWorkerHover(fw.id, fw.position.x, fw.position.y)}
+                onBlur={handleWorkerLeave}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleWorkerHover(fw.id, fw.position.x, fw.position.y); }}
+              >
+                {/* Subtle pulse rings — slower, muted */}
+                <circle className="stm-sim-worker-pulse stm-sim-pulse-one" r="40" />
+                <circle className="stm-sim-worker-pulse stm-sim-pulse-two" r="40" />
+                {/* Outer halo */}
+                <circle className="stm-sim-worker-halo" r="50" />
+                {/* Radial fill field */}
+                <circle className="stm-sim-worker-field" r="44" fill="url(#stm-sim-worker-fill)" />
+                {/* Dashed ring — key visual differentiator from real worker */}
+                <circle className="stm-sim-worker-ring" r="34" />
+                {/* Inner disc */}
+                <circle className="stm-sim-worker-inner" r="25" />
+                {/* Person icon (same shape, different color via CSS) */}
+                <g className="stm-sim-worker-icon">
+                  <circle cy="-8" r="5.5" />
+                  <path d="M -9 17 V 5 C -9 -1 -5.5 -3 0 -3 C 5.5 -3 9 -1 9 5 V 17 M -9 5.5 L -15 12 M 9 5.5 L 15 12 M -5.5 22 L -5.5 14 M 5.5 22 L 5.5 14" />
+                </g>
+                {/* "SIM" badge — unmistakable simulated indicator */}
+                <rect className="stm-sim-badge-bg" x="-18" y="-52" width="36" height="16" rx="4" />
+                <text className="stm-sim-badge-text" x="0" y="-40">SIM</text>
+                {/* Worker name label */}
+                <text className="stm-sim-worker-name" x="0" y="68">{fw.name}</text>
+                {renderEmergencyPopup(fw)}
+              </g>
+            ))}
+          </svg>
+        </div>
+
+        {/* ── Popup Overlay (HTML, above SVG) ── */}
+        {popupWorkerId && popupWorkerData && (
+          <>
+            {/* Popup card */}
+            <div
+              className="stm-popup"
+              style={{ left: popupPos.left, top: popupPos.top, bottom: popupPos.bottom }}
+              role="dialog"
+              aria-label={`${popupWorkerData.name} vitals popup`}
+              onMouseEnter={handlePopupEnter}
+              onMouseLeave={handlePopupLeave}
+            >
+              <button className="stm-popup-close" onClick={closePopup} aria-label="Close popup" type="button">×</button>
+              {/* Header: avatar + name + meta */}
+              <div className="stm-popup-header">
+                <div className={`stm-popup-avatar ${popupWorkerData.isSimulated ? 'sim' : 'real'}`}>
+                  {popupWorkerData.id}
+                </div>
+                <div className="stm-popup-info">
+                  <div className="stm-popup-name">{popupWorkerData.name}</div>
+                  <div className="stm-popup-meta">
+                    <span className="stm-popup-id">{popupWorkerData.id}</span>
+                    <span className="stm-popup-dot-sep">•</span>
+                    <span className="stm-popup-zone">{popupWorkerData.zone}</span>
+                  </div>
+                </div>
+              </div>
+              {/* Badges: type + status */}
+              <div className="stm-popup-badges">
+                <span className={`stm-popup-badge ${popupWorkerData.isSimulated ? 'sim-badge' : 'live'}`}>
+                  {popupWorkerData.isSimulated ? 'SIMULATED' : 'LIVE'}
+                </span>
+                <span className={`stm-popup-badge status-${popupWorkerData.status}`}>
+                  <span className="stm-popup-badge-dot" />
+                  {popupWorkerData.status === 'normal' ? 'Normal' : popupWorkerData.status === 'warning' ? 'Warning' : 'Emergency'}
+                </span>
+              </div>
+              {/* Compact vitals grid (3x2) */}
+              <div className="stm-popup-vitals">
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">TEMP</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.temperature != null ? `${Number(popupWorkerData.vitals.temperature).toFixed(1)}°` : '--'}</span>
+                </div>
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">GAS</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.gas_level != null ? `${Math.round(popupWorkerData.vitals.gas_level)}` : '--'}</span>
+                </div>
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">FORCE</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.force != null ? `${Math.round(popupWorkerData.vitals.force)}` : '--'}</span>
+                </div>
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">PULSE</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.heart_rate != null ? `${Math.round(popupWorkerData.vitals.heart_rate)}` : '--'}</span>
+                </div>
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">SpO₂</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.spo2 != null ? `${Number(popupWorkerData.vitals.spo2).toFixed(0)}%` : '--'}</span>
+                </div>
+                <div className="stm-popup-vital">
+                  <span className="stm-popup-vital-label">RSSI</span>
+                  <span className="stm-popup-vital-value">{popupWorkerData.vitals.rssi != null ? `${popupWorkerData.vitals.rssi}` : '--'}</span>
+                </div>
+              </div>
+              {/* View Details button */}
+              <button
+                className="stm-popup-action"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closePopup();
+                  if (onViewDetails) onViewDetails(popupWorkerData.id);
+                }}
+              >
+                View Details →
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Footer: legend + live readouts ── */}
+      <footer className="surveillance-map-footer">
+        <div className="surveillance-map-legend" aria-label="Map legend">
+          <span className="stm-legend-item"><i className="stm-legend-swatch tunnel" />Tunnel Network</span>
+          <span className="stm-legend-item"><i className="stm-legend-swatch worker" />Worker Position</span>
+          <span className="stm-legend-item"><i className="stm-legend-swatch rescue" />Rescue Path</span>
+          <span className="stm-legend-item"><i className="stm-legend-swatch hazard" />Hazard Zone</span>
+          <span className="stm-legend-item"><i className="stm-legend-swatch simulated" />Simulated Worker</span>
+        </div>
+        <div className="surveillance-map-summary">
+          <div className="stm-summary-block"><span>Current zone</span><strong>{activeZone}</strong></div>
+          <div className="stm-summary-block"><span>Signal RSSI</span><strong>{rssi ?? '—'}{rssi !== null && rssi !== undefined ? ' dBm' : ''}</strong></div>
+        </div>
+      </footer>
+    </section>
+  );
+}

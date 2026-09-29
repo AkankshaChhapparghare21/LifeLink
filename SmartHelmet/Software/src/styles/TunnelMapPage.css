@@ -1,0 +1,250 @@
+/* ═══════════════════════════════════════════════════════════════
+   TunnelMapPage  —  Full-screen dedicated tunnel map layout
+   Scoped styles only; the map's own internal styling lives in
+   SurveillanceTunnelMap.css and is NOT duplicated here.
+   ═══════════════════════════════════════════════════════════════ */
+
+.tunnel-map-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: calc(100vh - var(--header-height) - 48px);
+}
+
+/* ── Page header ──────────────────────────────────────────── */
+.tmp-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tmp-title {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.tmp-subtitle {
+  font-size: 0.82rem;
+  color: #8b949e;
+  margin: 4px 0 0;
+  letter-spacing: 0.01em;
+}
+
+.tmp-zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 24px;
+  background: rgba(91, 143, 185, 0.08);
+  border: 1px solid rgba(91, 143, 185, 0.15);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #5b8fb9;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tmp-zone-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5b8fb9;
+  box-shadow: 0 0 6px rgba(91, 143, 185, 0.4);
+}
+
+/* ── Main body: map full-width, panels beneath ────────────── */
+.tmp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Map container — lets SurveillanceTunnelMap fill fully ── */
+.tmp-map-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.tmp-map-container .surveillance-map-card {
+  width: 100%;
+  height: auto;
+}
+
+/* ── Info panels row (beneath the map) ────────────────────── */
+.tmp-sidebar-panel {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.tmp-sidebar-panel > * {
+  flex: 1 1 280px;
+}
+
+/* ── Info card — glassmorphism panel ──────────────────────── */
+.tmp-info-card {
+  background: rgba(13, 17, 23, 0.55);
+  border: 1px solid rgba(99, 110, 123, 0.15);
+  border-radius: 16px;
+  padding: 20px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.tmp-info-card-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin: 0 0 14px;
+}
+
+/* ── Sensor reading rows inside the info card ─────────────── */
+.tmp-reading-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tmp-reading-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.45);
+  border: 1px solid rgba(99, 110, 123, 0.08);
+  transition: background 0.2s;
+}
+
+.tmp-reading-row:hover {
+  background: rgba(22, 27, 34, 0.55);
+}
+
+.tmp-reading-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(91, 143, 185, 0.08);
+  color: #5b8fb9;
+  flex-shrink: 0;
+}
+
+.tmp-reading-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  flex: 1 1 auto;
+}
+
+.tmp-reading-value {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tmp-reading-unit {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: #8b949e;
+  margin-left: 2px;
+}
+
+/* ── Status row variants ──────────────────────────────────── */
+.tmp-reading-row.warning {
+  border-color: rgba(234, 179, 8, 0.18);
+  background: rgba(234, 179, 8, 0.06);
+}
+
+.tmp-reading-row.warning .tmp-reading-icon {
+  background: rgba(234, 179, 8, 0.12);
+  color: #facc15;
+}
+
+.tmp-reading-row.emergency {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.tmp-reading-row.emergency .tmp-reading-icon {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+/* ── Worker status card reuse — let it stretch to fill ────── */
+.tmp-sidebar-panel .worker-status-card {
+  flex: 0 0 auto;
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .tmp-sidebar-panel {
+    flex-direction: column;
+  }
+
+  .tmp-sidebar-panel > * {
+    flex: 1 1 auto;
+  }
+}
+
+/* ── Pinch-to-Zoom Hint and Wrapper ──────────────────────── */
+.tmp-zoom-hint {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .tmp-map-container {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+  }
+
+  .tmp-zoomable-wrapper {
+    width: 100%;
+    height: 100%;
+    transform-origin: center center;
+    will-change: transform;
+  }
+
+  .tmp-zoom-hint {
+    display: inline-block;
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    padding: 6px 16px;
+    border-radius: 20px;
+    background: rgba(91, 107, 120, 0.2);
+    border: 1px solid rgba(91, 107, 120, 0.4);
+    color: #5b8fb9;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    animation: tmpHintFade 5s forwards;
+  }
+}
+
+@keyframes tmpHintFade {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
